@@ -4,14 +4,15 @@ module RankedModel
   class InvalidField < StandardError; end
 
   class Ranker
-    attr_accessor :name, :column, :scope, :with_same, :class_name, :unless
+    attr_accessor :name, :column, :scope, :with_same, :class_name, :unless,
+      :on_rank_rearrange, :on_rank_rebalance
 
     def initialize name, options={}
       self.name = name.to_sym
       self.column = options[:column] || name
       self.class_name = options[:class_name]
 
-      [ :scope, :with_same, :unless ].each do |key|
+      [ :scope, :with_same, :unless, :on_rank_rearrange, :on_rank_rebalance ].each do |key|
         self.send "#{key}=", options[key]
       end
     end
@@ -174,19 +175,27 @@ module RankedModel
           # Never update ourself, shift others around us.
           _scope = _scope.where( instance_class.arel_table[instance_class.primary_key].not_eq(instance.id) )
         end
-        if current_first.rank && current_first.rank > RankedModel::MIN_RANK_VALUE && rank == RankedModel::MAX_RANK_VALUE
-          _scope.
-            where( instance_class.arel_table[ranker.column].lteq(rank) ).
-            update_all( %Q{#{ranker.column} = #{ranker.column} - 1} )
+        instances_to_update, update = if current_first.rank && current_first.rank > RankedModel::MIN_RANK_VALUE && rank == RankedModel::MAX_RANK_VALUE
+          [
+            _scope.where( instance_class.arel_table[ranker.column].lteq(rank) ),
+            %Q{#{ranker.column} = #{ranker.column} - 1}
+          ]
         elsif current_last.rank && current_last.rank < (RankedModel::MAX_RANK_VALUE - 1) && rank < current_last.rank
-          _scope.
-            where( instance_class.arel_table[ranker.column].gteq(rank) ).
-            update_all( %Q{#{ranker.column} = #{ranker.column} + 1} )
+          [
+            _scope.where( instance_class.arel_table[ranker.column].gteq(rank) ),
+            %Q{#{ranker.column} = #{ranker.column} + 1}
+          ]
         elsif current_first.rank && current_first.rank > RankedModel::MIN_RANK_VALUE && rank > current_first.rank
-          _scope.
-            where( instance_class.arel_table[ranker.column].lt(rank) ).
-            update_all( %Q{#{ranker.column} = #{ranker.column} - 1} )
-          rank_at( rank - 1 )
+          rank_at(rank - 1)
+          [
+            _scope.where( instance_class.arel_table[ranker.column].lt(rank) ),
+            %Q{#{ranker.column} = #{ranker.column} - 1}
+          ]
+        end
+
+        if instances_to_update
+          instances_to_update.update_all(update)
+          ranker.on_rank_rearrange.call(instances_to_update.pluck(:id)) if ranker.on_rank_rearrange
         else
           rebalance_ranks
         end
@@ -212,6 +221,8 @@ module RankedModel
           end
           current_order[index].update_rank! rank_value
         end
+
+        ranker.on_rank_rebalance.call(current_order.map(&:instance).map(&:id)) if ranker.on_rank_rebalance
       end
 
       def finder(order = :asc)

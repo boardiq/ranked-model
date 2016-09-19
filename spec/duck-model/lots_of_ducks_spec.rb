@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'pry'
 
 describe Duck do
 
@@ -74,7 +75,11 @@ describe Duck do
         @second = Duck.offset(1).first
         @ordered = Duck.rank(:row).where(Duck.arel_table[:id].not_in([@first.id, @second.id])).collect {|d| d.id }
         @first.update_attribute :row, RankedModel::MAX_RANK_VALUE
+        @rearrange_receiver = mock('rearrange_receiver')
+        Duck.rearrange_receiver = @rearrange_receiver
+        @rearrange_receiver.expects(:rearranged)
         @second.update_attribute :row, RankedModel::MAX_RANK_VALUE
+        Duck.rearrange_receiver = nil
       }
 
       context {
@@ -84,7 +89,6 @@ describe Duck do
         it { should == (@ordered[0..-2] + [@ordered[-1], @first.id, @second.id]) }
 
       }
-
     end
 
     describe "with max value and with_same pond" do
@@ -151,7 +155,11 @@ describe Duck do
         @first.update_attribute :row, RankedModel::MIN_RANK_VALUE
         @second.update_attribute :row, RankedModel::MAX_RANK_VALUE
         @third.update_attribute :row, (RankedModel::MAX_RANK_VALUE / 2)
+        @rebalance_receiver = mock('rebalance_receiver')
+        Duck.rebalance_receiver = @rebalance_receiver
+        @rebalance_receiver.expects(:rearranged)
         @fourth.update_attribute :row, @third.row
+        Duck.rebalance_receiver = nil
       }
 
       context {

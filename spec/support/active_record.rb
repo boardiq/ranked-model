@@ -7,7 +7,7 @@ DB_CONFIG = "test" + (ENV['DB'] ? "_#{ENV['DB'].downcase}" : '')
 
 ActiveRecord::Base.logger = Logger.new('tmp/ar_debug.log')
 ActiveRecord::Base.configurations = YAML::load(IO.read('spec/support/database.yml'))
-ActiveRecord::Base.establish_connection(DB_CONFIG)
+ActiveRecord::Base.establish_connection(ActiveRecord::Base.configurations[DB_CONFIG])
 
 ActiveRecord::Schema.define :version => 0 do
   create_table :ducks, :force => true do |t|
@@ -61,15 +61,29 @@ end
 class Duck < ActiveRecord::Base
 
   include RankedModel
-  ranks :row
+  @@rearrange_receiver = nil
+  @@rebalance_receiver = nil
+  ranks :row, :on_rank_rearrange => lambda { |rearranged_ids|
+      @@rearrange_receiver.rearranged(rearranged_ids) if @@rearrange_receiver
+    }, :on_rank_rebalance => lambda { |rebalanced_ids|
+      @@rebalance_receiver.rearranged(rebalanced_ids) if @@rebalance_receiver
+    }
   ranks :size, :scope => :in_shin_pond
   ranks :age, :with_same => :pond
 
   ranks :landing_order, :with_same => [:lake_id, :flock_id]
+
   scope :in_lake_and_flock, lambda {|lake, flock| where(:lake_id => lake, :flock_id => flock) }
 
   scope :in_shin_pond, lambda { where(:pond => 'Shin') }
 
+  def self.rearrange_receiver=(value)
+    @@rearrange_receiver = value
+  end
+
+  def self.rebalance_receiver=(value)
+    @@rebalance_receiver = value
+  end
 end
 
 # Negative examples
